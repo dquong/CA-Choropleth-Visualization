@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html> 
+    <head>
+        <!-- Meta Tag -->
+        <meta charset="utf-8">
+        <!-- CSS Stylesheet -->
+        <link rel="stylesheet" type="text/css" href="MultiLinestylesheet.css">  
+      
+        <!-- D3.js Source -->
+        <script type= "text/javascript" src="https://d3js.org/d3.v5.min.js"></script>
+        <script src="https://d3js.org/d3-scale-chromatic.v1.min.js"></script>
+        <script src="https://d3js.org/topojson.v2.min.js"></script>
+    </head>
+    
+    <body>
+        <h1 style = "text-align:center; color:black"><bold>California Population Density 2018 and Covid-19 Data</bold></h1>
+
+        <div style = "text-align:center">
+            <button type="button" onclick="changeColor()">Change Color</button>
+            <button type="button" onclick="toggleState()">Toggle State Boundary</button>
+            <button type="button" onclick="toggleTract()">Toggle Census Tract Boundary</button>
+            <select id="selectButton"></select>
+        </div>     
+        <script>
+            // SVG Definition
+            var margin = {top: 0, right: 0, bottom: 0, left: 0},
+                width = 960 - margin.left - margin.right,
+                height = 960 - margin.top - margin.bottom;
+
+            var svg = d3.select("body").append("svg")
+                .attr("width", width + margin.left + margin.right)
+                .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                .attr("transform",
+                      "translate(" + margin.left + "," + margin.top + ")");
+            
+            // Tool-tip Definition
+            var div = d3.select("body").append("div")	
+                .attr("class", "tooltip")				
+                .style("opacity", 0);
+            
+            // geoPath variable so we can visuialize geographical mappings
+            var path = d3.geoPath().projection(null);;
+            
+            // Color scale
+            var color = d3.scaleThreshold()
+                .domain([1, 10, 50, 200, 500, 1000, 2000, 4000])
+                .range(d3.schemeOrRd[9]);
+            
+            var confirmed_color = d3.scaleThreshold()
+                .domain([0, 100, 500, 1000, 2500, 5000, 10000, 15000])
+                .range(d3.schemePurples[9]);
+            
+            var death_color = d3.scaleThreshold()
+                .domain([0, 10, 25, 50, 100, 250, 500, 2000])
+                .range(d3.schemeReds[9]);
+            
+            var deathperc_color = d3.scaleThreshold()
+                .domain([0,1, 2, 3, 4, 5, 7.5,10])
+                .range(d3.schemeGreys[9]);
+            
+            var population_color = d3.scaleThreshold()
+                .domain([1,10, 50, 200, 500, 1000, 2000,5000])
+                .range(d3.schemeOrRd[9]);
+            
+            var perhun_color = d3.scaleThreshold()
+                .domain([1,10, 50, 100, 250, 500, 1000,1250])
+                .range(d3.schemePurples[9]);
+            
+            
+            var colorselector = 1;
+            
+            // Two domain scales are needed because population is so far out of the range of density
+            var x = d3.scaleSqrt()
+                .domain([0, 4500])
+                .rangeRound([440, 950]);
+            
+            var xconfirmed = d3.scaleSqrt()
+                .domain([0, 16500])
+                .rangeRound([440, 950]);
+            
+            var xdeath = d3.scaleSqrt()
+                .domain([0, 2600])
+                .rangeRound([440, 950]);
+            
+            var xdeathperc = d3.scaleLinear()
+                .domain([0, 15])
+                .rangeRound([440, 950]);
+            
+            var xpopulation = d3.scaleSqrt()
+                .domain([0, 10100])
+                .rangeRound([440, 950]);
+            
+            var xperhun = d3.scaleSqrt()
+                .domain([0, 1500])
+                .rangeRound([440, 950]);
+
+            var g = svg.append("g")
+                .attr("class", "key")
+                .attr("transform", "translate(0,40)");
+            
+            
+            var legenddata = color.range().map(function(d) {
+                  d = color.invertExtent(d);
+                  if (d[0] == null) d[0] = x.domain()[0];
+                  if (d[1] == null) d[1] = x.domain()[1];
+                  return d;
+                });
+            
+            // Draw and fill in the legend box
+            var legend = g.selectAll("rect")
+                .data(legenddata)
+                .enter().append("rect")
+                .attr("height", 8)
+                .attr("x", function(d) { return x(d[0]); })
+                .attr("width", function(d) { return x(d[1]) - x(d[0]); })
+                .attr("fill", function(d) { return color(d[0]); })
+            
+            // Add legend title
+            var legendtitle = g.append("text")
+                .attr("class", "caption")
+                .attr("x", x.range()[0])
+                .attr("y", -6)
+                .attr("fill", "#000")
+                .attr("text-anchor", "start")
+                .attr("font-weight", "bold")
+                .text("Population per Square Mile");
+            
+            // Adds legend axis (later removes but tick marks remain)
+            var legendaxis = g.call(d3.axisBottom(x)
+                .tickSize(13)
+                .tickValues(color.domain()))
+                .select(".domain")
+                .remove();
+            
+            var jsondata; //will hold data so that properties can be accessed
+            var tractdata; //holds the tract data for the toggle button
+            var statedata; // holds state boundary for the other toggle button
+            var geovis; //iniitialzie variable outside of json loop so that it can be used within but accessed outside
+            var topoj;
+            
+            d3.json("ca-topo.json").then(function(topology) {
+                topoj = topology
+                jsondata = topojson.feature(topology, topology.objects.tracts).features
+                tractdata = topojson.feature(topology, topology.objects.tracts)
+                statedata = topojson.feature(topology, topology.objects.states)  
+                
+                geovis = svg.append("g").selectAll("path")
+                    .data(jsondata)
+                    .enter()
+                    .append("path")
+                    .attr("fill", function(d) { return color(d.properties.density); })
+                    .attr("d", path)
+                    .call(d3.helper.tooltip(function(d,i){
+                        var temp = makeTooltipText(d);
+                        return temp; 
+                    }));
+
+                 svg.append("path")
+                    .datum(topojson.feature(topology, topology.objects.counties))
+                    .attr("fill", "none")
+                    .attr("stroke", "#000")
+                    .attr("stroke-opacity", 0.5)
+                    .attr("d", path);
+            });
+            
+            
+            svg.selectAll("path").append('g').attr("transform", "translate(0,1)")
+            
+            
+            
+            // add the options to the button
+            var buttonchoices = ['Population Density','Population', 'Confirmed Cases per County','Cases per Hundred Thousand People', 'Confirmed Deaths per County', 'Death Rate per County'];
+            var currchoice = 'Population Density';
+            
+            d3.select("#selectButton")
+                .selectAll('myOptions')
+                .data(buttonchoices)
+                .enter()
+                .append('option')
+                .text(function (d) { return d; }) // Populates dropdown options
+                .attr("value", function (d) { return d; }); //displays current selection
+            
+            //Upon selecting a different dropdown option, update the dataset that is visualized
+            d3.select("#selectButton").on("change", function(d) {
+                var selectedOption = d3.select(this).property("value")
+            
+                if(selectedOption == 'Confirmed Cases per County'){
+                    geovis.transition()
+                        .duration(1000)
+                        .attr("fill", function(d,i){
+                            var countyid = 6000 + (''+d.id)[0]*100 + (''+d.id)[1]*10 + (''+d.id)[2]*1;
+                            var temp = getConfimedCases(countyid);
+                            return confirmed_color(temp);
+                        });//population_color(d.properties.B01003); });
+                    
+                    legend.transition()
+                        .duration(1000)
+                        .attr("fill", function(d) { return confirmed_color(d[0]); });
+                    
+                    legendtitle.text("Confirmed Cases per County");
+                    
+                    legend.remove();
+                    var tempdata = confirmed_color.range().map(function(d) {
+                          d = confirmed_color.invertExtent(d);
+                          if (d[0] == null) d[0] = xconfirmed.domain()[0];
+                          if (d[1] == null) d[1] = xconfirmed.domain()[1];
+                          return d;
+                    });
+                    
+                    legend = g.selectAll("rect")
+                        .data(tempdata)
+                        .enter().append("rect")
+                        .attr("height", 8)
+                        .attr("x", function(d) { return xconfirmed(d[0]); })
+                        .attr("width", function(d) { return xconfirmed(d[1]) - xconfirmed(d[0]); })
+                        .attr("fill", function(d) { return confirmed_color(d[0]); })
+
+                    legendaxis = g.call(d3.axisBottom(xconfirmed)
+                        .tickSize(13)
+                        .tickValues(confirmed_color.domain()))
+                        .select(".domain")
+                        .remove();
+
+                    
+                }
+                if(selectedOption == 'Confirmed Deaths per County'){
+                    geovis.transition()
+                        .duration(1000)
+                        .attr("fill", function(d,i){
+                            var countyid = 6000 + (''+d.id)[0]*100 + (''+d.id)[1]*10 + (''+d.id)[2]*1;
+                            var temp = getDeaths(countyid);
+                            return death_color(temp);
+                        });//population_color(d.properties.B01003); });
+                    
+                    legend.transition()
+                        .duration(1000)
+                        .attr("fill", function(d) { return death_color(d[0]); });
+                    
+                    legendtitle.text('Confirmed Deaths per County');
+                    
+                    legend.remove();
+                    var tempdata = death_color.range().map(function(d) {
+                          d = death_color.invertExtent(d);
+                          if (d[0] == null) d[0] = xdeath.domain()[0];
+                          if (d[1] == null) d[1] = xdeath.domain()[1];
+                          return d;
+                    });
+                    
+                    legend = g.selectAll("rect")
+                        .data(tempdata)
+                        .enter().append("rect")
+                        .attr("height", 8)
+                        .attr("x", function(d) { return xdeath(d[0]); })
+                        .attr("width", function(d) { return xdeath(d[1]) - xdeath(d[0]); })
+                        .attr("fill", function(d) { return death_color(d[0]); })
+
+                    legendaxis = g.call(d3.axisBottom(xdeath)
+                        .tickSize(13)
+                        .tickValues(death_color.domain()))
+                        .select(".domain")
+                        .remove();
+
+                    
+                }
+                
+                if(selectedOption == 'Death Rate per County'){
+                    geovis.transition()
+                        .duration(1000)
+                        .attr("fill", function(d,i){
+                            var countyid = 6000 + (''+d.id)[0]*100 + (''+d.id)[1]*10 + (''+d.id)[2]*1;
+                            var temp = getDeathsPerc(countyid);
+                            return deathperc_color(temp);
+                        });//population_color(d.properties.B01003); });
+                    
+                    legend.transition()
+                        .duration(1000)
+                        .attr("fill", function(d) { return deathperc_color(d[0]); });
+                    
+                    legendtitle.text('Death Rate (%) per County');
+                    
+                    legend.remove();
+                    var tempdata = deathperc_color.range().map(function(d) {
+                          d = deathperc_color.invertExtent(d);
+                          if (d[0] == null) d[0] = xdeathperc.domain()[0];
+                          if (d[1] == null) d[1] = xdeathperc.domain()[1];
+                          return d;
+                    });
+                    
+                    legend = g.selectAll("rect")
+                        .data(tempdata)
+                        .enter().append("rect")
+                        .attr("height", 8)
+                        .attr("x", function(d) { return xdeathperc(d[0]); })
+                        .attr("width", function(d) { return xdeathperc(d[1]) - xdeathperc(d[0]); })
+                        .attr("fill", function(d) { return deathperc_color(d[0]); })
+
+                    legendaxis = g.call(d3.axisBottom(xdeathperc)
+                        .tickSize(13)
+                        .tickValues(deathperc_color.domain()))
+                        .select(".domain")
+                        .remove();
+                    
+                    
+                }
+                
+                
+                if(selectedOption == 'Population Density'){
+                    geovis.transition()
+                        .duration(1000)
+                        .attr("fill", function(d) { return color(d.properties.density); });
+                    legend.transition()
+                        .duration(1000)
+                        .attr("fill", function(d) { return color(d[0]); });
+                    
+                    legendtitle.text("Population per Square Mile");
+                    
+                    legend.remove();
+                    var tempdata = color.range().map(function(d) {
+                          d = color.invertExtent(d);
+                          if (d[0] == null) d[0] = x.domain()[0];
+                          if (d[1] == null) d[1] = x.domain()[1];
+                          return d;
+                    });
+                    
+                    legend = g.selectAll("rect")
+                        .data(tempdata)
+                        .enter().append("rect")
+                        .attr("height", 8)
+                        .attr("x", function(d) { return x(d[0]); })
+                        .attr("width", function(d) { return x(d[1]) - x(d[0]); })
+                        .attr("fill", function(d) { return color(d[0]); })
+
+                    legendaxis = g.call(d3.axisBottom(x)
+                        .tickSize(13)
+                        .tickValues(color.domain()))
+                        .select(".domain")
+                        .remove();
+
+                    
+                    
+                }
+                if(selectedOption == 'Population'){
+                    geovis.transition()
+                        .duration(1000)
+                        .attr("fill", function(d,i){
+                            var countyid = 6000 + (''+d.id)[0]*100 + (''+d.id)[1]*10 + (''+d.id)[2]*1;
+                            var temp = getPopulation(countyid);
+                            return population_color(temp);
+                        });//population_color(d.properties.B01003); });
+                    
+                    legend.transition()
+                        .duration(1000)
+                        .attr("fill", function(d) { return population_color(d[0]); });
+                    
+                    legendtitle.text('Population per County (1000x)');
+                    
+                    legend.remove();
+                    var tempdata = population_color.range().map(function(d) {
+                          d = population_color.invertExtent(d);
+                          if (d[0] == null) d[0] = xpopulation.domain()[0];
+                          if (d[1] == null) d[1] = xpopulation.domain()[1];
+                          return d;
+                    });
+                    
+                    legend = g.selectAll("rect")
+                        .data(tempdata)
+                        .enter().append("rect")
+                        .attr("height", 8)
+                        .attr("x", function(d) { return xpopulation(d[0]); })
+                        .attr("width", function(d) { return xpopulation(d[1]) - xpopulation(d[0]); })
+                        .attr("fill", function(d) { return population_color(d[0]); })
+
+                    legendaxis = g.call(d3.axisBottom(xpopulation)
+                        .tickSize(13)
+                        .tickValues(population_color.domain()))
+                        .select(".domain")
+                        .remove();
+
+                    
+                }
+                if(selectedOption == 'Cases per Hundred Thousand People'){
+                    geovis.transition()
+                        .duration(1000)
+                        .attr("fill", function(d,i){
+                            var countyid = 6000 + (''+d.id)[0]*100 + (''+d.id)[1]*10 + (''+d.id)[2]*1;
+                            var temp = getPerHundred(countyid);
+                            return perhun_color(temp);
+                        });//population_color(d.properties.B01003); });
+                    
+                    legend.transition()
+                        .duration(1000)
+                        .attr("fill", function(d) { return perhun_color(d[0]); });
+                    
+                    legendtitle.text('Population per County (1000x)');
+                    
+                    legend.remove();
+                    var tempdata = perhun_color.range().map(function(d) {
+                          d = perhun_color.invertExtent(d);
+                          if (d[0] == null) d[0] = xperhun.domain()[0];
+                          if (d[1] == null) d[1] = xperhun.domain()[1];
+                          return d;
+                    });
+                    
+                    legend = g.selectAll("rect")
+                        .data(tempdata)
+                        .enter().append("rect")
+                        .attr("height", 8)
+                        .attr("x", function(d) { return xperhun(d[0]); })
+                        .attr("width", function(d) { return xperhun(d[1]) - xperhun(d[0]); })
+                        .attr("fill", function(d) { return perhun_color(d[0]); })
+
+                    legendaxis = g.call(d3.axisBottom(xperhun)
+                        .tickSize(13)
+                        .tickValues(perhun_color.domain()))
+                        .select(".domain")
+                        .remove();
+
+                    
+                }
+                currchoice = selectedOption; //updates current selection variable 
+            });
+            
+            
+            // change color helper for when change color button is pressed
+            // every dataset can alternate between two different color schemes 
+            var changeColor = function(){
+                
+                if(colorselector==1){
+                    color.range(d3.schemeBuGn[9]);
+                    confirmed_color.range(d3.schemeBlues[9]);
+                    death_color.range(d3.schemeOranges[9]);
+                    deathperc_color.range(d3.schemePuBuGn[9])
+                    population_color.range(d3.schemeBuGn[9]);
+                    perhun_color.range(d3.schemeBlues[9]);
+                    colorselector = 2;
+                }else{
+                    color.range(d3.schemeOrRd[9]);
+                    confirmed_color.range(d3.schemePurples[9]);
+                    death_color.range(d3.schemeReds[9]);
+                    deathperc_color.range(d3.schemeGreys[9])
+                    population_color.range(d3.schemeOrRd[9]);
+                    perhun_color.range(d3.schemePurples[9]);
+                    colorselector = 1;
+                }
+                /*
+var buttonchoices = ['Population Density', 'Confirmed Cases per County', 'Confirmed Deaths per County', 'Death Rate per County','Population', 'Cases per Hundred Thousand People'];
+*/
+                if(currchoice == 'Population Density'){
+                    geovis.transition()
+                        .duration(1000)
+                        .attr("fill", function(d) { return color(d.properties.density); });
+                
+                    legend.transition()
+                        .duration(1000)
+                        .attr("fill", function(d) { return color(d[0]); });
+                }
+                else if(currchoice == 'Confirmed Cases per County'){
+                    geovis.transition()
+                        .duration(1000)
+                        .attr("fill", function(d,i){
+                            var countyid = 6000 + (''+d.id)[0]*100 + (''+d.id)[1]*10 + (''+d.id)[2]*1;
+                            var temp = getConfimedCases(countyid);
+                            return confirmed_color(temp);
+                        });
+                
+                    legend.transition()
+                        .duration(1000)
+                        .attr("fill", function(d) { return confirmed_color(d[0]); });
+                }
+                else if(currchoice == 'Confirmed Deaths per County'){
+                    geovis.transition()
+                        .duration(1000)
+                        .attr("fill", function(d,i){
+                            var countyid = 6000 + (''+d.id)[0]*100 + (''+d.id)[1]*10 + (''+d.id)[2]*1;
+                            var temp = getDeaths(countyid);
+                            return death_color(temp);
+                        });
+                
+                    legend.transition()
+                        .duration(1000)
+                        .attr("fill", function(d) { return death_color(d[0]); });
+                }
+                else if(currchoice == 'Death Rate per County'){
+                    geovis.transition()
+                        .duration(1000)
+                        .attr("fill", function(d,i){
+                            var countyid = 6000 + (''+d.id)[0]*100 + (''+d.id)[1]*10 + (''+d.id)[2]*1;
+                            var temp = getDeathsPerc(countyid);
+                            return deathperc_color(temp);
+                        });
+                
+                    legend.transition()
+                        .duration(1000)
+                        .attr("fill", function(d) { return deathperc_color(d[0]); });
+                }
+                else if(currchoice == 'Population'){
+                    geovis.transition()
+                        .duration(1000)
+                        .attr("fill", function(d,i){
+                            var countyid = 6000 + (''+d.id)[0]*100 + (''+d.id)[1]*10 + (''+d.id)[2]*1;
+                            var temp = getPopulation(countyid);
+                            return population_color(temp);
+                        });
+                
+                    legend.transition()
+                        .duration(1000)
+                        .attr("fill", function(d) { return population_color(d[0]); });
+                }
+                else if(currchoice == 'Cases per Hundred Thousand People'){
+                    geovis.transition()
+                        .duration(1000)
+                        .attr("fill", function(d,i){
+                            var countyid = 6000 + (''+d.id)[0]*100 + (''+d.id)[1]*10 + (''+d.id)[2]*1;
+                            var temp = getPerHundred(countyid);
+                            return perhun_color(temp);
+                        });
+                
+                    legend.transition()
+                        .duration(1000)
+                        .attr("fill", function(d) { return perhun_color(d[0]); });
+                }
+                else{
+                    /*geovis.transition()
+                        .duration(1000)
+                        .attr("fill", function(d) { return color(d.properties.density); });
+                
+                    legend.transition()
+                        .duration(1000)
+                        .attr("fill", function(d) { return color(d[0]); });*/
+                    
+                }
+            }
+            
+            //Toggle tract and state boundary flags and helper
+            var tractflag = 0;
+            var tract;
+            var stateflag = 0;
+            var state;
+            var toolflag = 0;
+            
+            var toggleTract = function(){
+                if (tractflag == 0){
+                    tract = svg.append("path")
+                        .datum(tractdata)
+                        .attr("fill", "none")
+                        .attr("stroke", "#000")
+                        .attr("stroke-opacity", 0.3)
+                        .attr("d", path);
+                    tractflag = 1;
+                }
+                else if (tractflag == 1){
+                    tract.remove();
+                    tractflag = 0;
+                }
+            }
+            
+            
+            var toggleState = function(){
+                if (stateflag == 0){
+                    state = svg.append("path")
+                        .datum(statedata)
+                        .attr("fill", "none")
+                        .attr("stroke", "#000")
+                        .attr("stroke-opacity", 0.3)
+                        .attr("d", path);
+                    stateflag = 1;
+                }
+                else if (stateflag == 1){
+                    state.remove();
+                    stateflag = 0;
+                }
+            }
+            
+            /*
+            var toggleTool = function(){
+                if(toolflag == 1){
+                    toolflag = 0;
+                }else{
+                    toolflag = 1;
+                }
+            }*/
+            
+            // Calculates total estimated population within a given county by summing up population all tracts that belong to it
+            var getCountyPop = function(cid){
+                  var i = 0;
+                var pop = 0;
+                
+                for(var k = 0; k < confirmed_data.length; k++){
+                    if(confirmed_data[k].countyFIPS == cid){
+                        return confirmed_data[k].pop;
+                    }
+                }
+                
+                return 0;
+            }
+            
+            //getConfimedCases
+            var getCountyName = function(cid){
+                var i = 0;
+                var pop = 0;
+                
+                for(var k = 0; k < confirmed_data.length; k++){
+                    if(confirmed_data[k].countyFIPS == cid){
+                        return confirmed_data[k].countyName;
+                    }
+                }
+                
+                return 0;
+            }
+            
+            //getConfimedCases
+            var getConfimedCases = function(cid){
+                var i = 0;
+                var pop = 0;
+                
+                for(var k = 0; k < confirmed_data.length; k++){
+                    if(confirmed_data[k].countyFIPS == cid){
+                        return confirmed_data[k].cases;
+                    }
+                }
+                
+                return 0;
+            }
+            
+            var getDeaths = function(cid){
+                var i = 0;
+                var pop = 0;
+                
+                for(var k = 0; k < confirmed_data.length; k++){
+                    if(confirmed_data[k].countyFIPS == cid){
+                        return confirmed_data[k].deaths;
+                    }
+                }
+                
+                return 0;
+            }
+            
+            var getDeathsPerc = function(cid){
+                var i = 0;
+                var pop = 0;
+                
+                for(var k = 0; k < confirmed_data.length; k++){
+                    if(confirmed_data[k].countyFIPS == cid){
+                        return confirmed_data[k].death_perc;
+                    }
+                }
+                
+                return 0;
+            }
+            
+            var getPopulation = function(cid){
+                var i = 0;
+                var pop = 0;
+                
+                for(var k = 0; k < confirmed_data.length; k++){
+                    if(confirmed_data[k].countyFIPS == cid){
+                        return confirmed_data[k].population;
+                    }
+                }
+                
+                return 0;
+            }
+            
+            var getPerHundred = function(cid){
+                var i = 0;
+                var pop = 0;
+                
+                for(var k = 0; k < confirmed_data.length; k++){
+                    if(confirmed_data[k].countyFIPS == cid){
+                        return confirmed_data[k].perhundred;
+                    }
+                }
+                
+                return 0;
+            }
+            
+            var confirmed_data;
+            d3.csv('ca-covid-data.csv').then(function(data) {
+                    confirmed_data = data;
+            });
+            var makeTooltipText = function(d){
+                var countyid = 6000 + (''+d.id)[0]*100 + (''+d.id)[1]*10 + (''+d.id)[2]*1;
+                var cname = getCountyName(countyid);
+                var cpop = getCountyPop(countyid);
+                var cconfirmed = getConfimedCases(countyid);
+                var cdeaths = getDeaths(countyid);
+                var cdrate = getDeathsPerc(countyid);
+                var cperhun = getPerHundred(countyid)
+                //var countyPop = getCountyPop(countyid);
+                return cname + "<br>Population: " + cpop +  "<br>Confirmed Cases: " + cconfirmed + "<br>Cases per 100k: " + cperhun + "<br>Deaths: " + cdeaths + "<br>Death Rate: " + cdrate + "%";
+
+            };
+            
+            // d3 helper function for tool tip
+            d3.helper = {};
+            
+            d3.helper.tooltip = function(accessor){
+                return function(selection){
+                    var tooltipDiv;
+                    var bodyNode = d3.select('body').node();
+                    selection.on("mouseover", function(d, i){
+       
+                        d3.select('body').selectAll('div.tooltip').remove(); //removes all tooltips first just in case
+
+                        tooltipDiv = d3.select('body').append('div').attr('class', 'tooltip')
+                            .style("background-color", "white")
+                            .style("opacity", 0.9)
+                            .style("border", "solid")
+                            .style("border-width", "2px")
+                            .style("border-radius", "5px")
+                            .style("padding", "5px");
+                        var absoluteMousePos = d3.mouse(bodyNode);
+                        tooltipDiv.style('left', (absoluteMousePos[0] + 10)+'px')
+                            .style('top', (absoluteMousePos[1] - 15)+'px')
+                            .style('position', 'absolute') 
+                            .style('z-index', 1001);
+                        // Add text using the accessor function
+                        var tooltipText = accessor(d, i) || '';
+                        // Crop text arbitrarily
+                        //tooltipDiv.style('width', function(d, i){return (tooltipText.length > 80) ? '300px' : null;})
+                        //    .html(tooltipText);
+                    })
+                    .on('mousemove', function(d, i) { //if mouse is moving, update location
+                        // Move tooltip
+                        var absoluteMousePos = d3.mouse(bodyNode);
+                        tooltipDiv.style('left', (absoluteMousePos[0] + 10)+'px')
+                            .style('top', (absoluteMousePos[1] - 15)+'px');
+                        var tooltipText = accessor(d, i) || '';
+                        tooltipDiv.html(tooltipText);
+                    })
+                    .on("mouseout", function(d, i){ //remove tooltip is mouse is not on any data
+                        // Remove tooltip
+                        tooltipDiv.remove();
+                    });
+
+                };
+            };
+
+          
+        </script>     
+        <div>
+        Derek Quong <br>
+        Instructor: Suresh Lodha <br>
+        CSE 163: Data programming for Visualization <br>
+        Spring 2020 <br>
+        https://dquong.github.io/Maryland-Choropleth-Visualization/MDPopDensity.html
+        </div>
+        <h3>References</h3>
+        Data Formatting and Example Choropleth: https://medium.com/@mbostock/command-line-cartography-part-1-897aa8f8ca2c<br>
+        Tooltip Implementation: https://gist.github.com/piwodlaiwo/cbce7d163349da5c615a08b6e7a12d69
+        <h3>Data Sources</h3>
+        Cartographic Boundary File: https://www2.census.gov/geo/tiger/GENZ2018/shp/ <br>
+        2018 Census Dataset: https://api.census.gov/data/2018/acs/acs5/ <br>
+        Covid 19 California Dataset: https://usafacts.org/visualizations/coronavirus-covid-19-spread-map/
+
+    </body>
+    <!--- Additional Resources ---
+    https://bl.ocks.org/hazdik/407c417cf862c85a204f1eafe5299086
+    https://bl.ocks.org/larsenmtl/e3b8b7c2ca4787f77d78f58d41c3da91
+    -->
+    
+</html>
